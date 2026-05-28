@@ -1,0 +1,101 @@
+diff -Nru -x '*.o' -x '*.ko' -x '*.cmd' linux-6.19.10-orig/drivers/gpu/drm/amd/pm/swsmu/smu13/smu_v13_0_5_ppt.c linux-6.19.10/drivers/gpu/drm/amd/pm/swsmu/smu13/smu_v13_0_5_ppt.c
+--- linux-6.19.10-orig/drivers/gpu/drm/amd/pm/swsmu/smu13/smu_v13_0_5_ppt.c	2026-03-25 11:13:32.000000000 +0100
++++ linux-6.19.10/drivers/gpu/drm/amd/pm/swsmu/smu13/smu_v13_0_5_ppt.c	2026-03-30 05:38:46.809377918 +0200
+@@ -145,8 +145,12 @@
+ 	smu_table->watermarks_table = kzalloc(sizeof(Watermarks_t), GFP_KERNEL);
+ 	if (!smu_table->watermarks_table)
+ 		goto err2_out;
+-
+-	smu_table->gpu_metrics_table_size = sizeof(struct gpu_metrics_v2_1);
++	
++	/* * Updated to gpu_metrics_v2_3 to support newer firmware versions (like SMU 82.95.0)
++	 * which report metrics version 5 or higher.
++	 */
++	smu_table->gpu_metrics_table_size = sizeof(struct gpu_metrics_v2_3);
++	//smu_table->gpu_metrics_table_size = sizeof(struct gpu_metrics_v2_1);
+ 	smu_table->gpu_metrics_table = kzalloc(smu_table->gpu_metrics_table_size, GFP_KERNEL);
+ 	if (!smu_table->gpu_metrics_table)
+ 		goto err3_out;
+@@ -469,8 +473,11 @@
+ 						void **table)
+ {
+ 	struct smu_table_context *smu_table = &smu->smu_table;
+-	struct gpu_metrics_v2_1 *gpu_metrics =
+-		(struct gpu_metrics_v2_1 *)smu_table->gpu_metrics_table;
++	/* UPDATED: Changed pointer type to v2_3 to support SMU 82.95.0 / Version 5 metrics */
++	struct gpu_metrics_v2_3 *gpu_metrics =
++		(struct gpu_metrics_v2_3 *)smu_table->gpu_metrics_table;
++	//struct gpu_metrics_v2_1 *gpu_metrics =
++	//	(struct gpu_metrics_v2_1 *)smu_table->gpu_metrics_table;
+ 	SmuMetrics_t metrics;
+ 	int ret = 0;
+ 
+@@ -478,7 +485,11 @@
+ 	if (ret)
+ 		return ret;
+ 
+-	smu_cmn_init_soft_gpu_metrics(gpu_metrics, 2, 1);
++	/* UPDATED: Initialize as version 2.3. 
++	 * This tells the system that the buffer follows the v2.3 layout. 
++	 */
++	smu_cmn_init_soft_gpu_metrics(gpu_metrics, 2, 3);
++	//smu_cmn_init_soft_gpu_metrics(gpu_metrics, 2, 1);
+ 
+ 	gpu_metrics->temperature_gfx = metrics.GfxTemperature;
+ 	gpu_metrics->temperature_soc = metrics.SocTemperature;
+@@ -500,15 +511,50 @@
+ 
+ 	*table = (void *)gpu_metrics;
+ 
+-	return sizeof(struct gpu_metrics_v2_1);
++	/* UPDATED: Return the size of the larger v2.3 structure */
++	return sizeof(struct gpu_metrics_v2_3);
++	//return sizeof(struct gpu_metrics_v2_1);
++}
++
++/* Framework 16 Fix: Enforce minimum GFX clock to prevent voltage drop under heavy CPU load. */
++static int smu_v13_0_5_force_igpu_floor(struct smu_context *smu)
++{
++	int ret = 0;
++	uint32_t min_gfx_clk = 800; /* 800 MHz base value to keep the voltage rail stable. */
++
++	dev_info(smu->adev->dev, "[FW16-Patch] Applying iGPU Power-Floor: %u MHz\n", min_gfx_clk);
++
++	/* Command SMU not to drop GFX clock below 800MHz. */
++	ret = smu_cmn_send_smc_msg_with_param(smu, SMU_MSG_SetHardMinGfxClk, min_gfx_clk, NULL);
++	
++	if (ret)
++		dev_err(smu->adev->dev, "[FW16-Patch] Failed to set iGPU Floor! (Error: %d)\n", ret);
++
++	return ret;
+ }
+ 
+ static int smu_v13_0_5_set_default_dpm_tables(struct smu_context *smu)
+ {
+ 	struct smu_table_context *smu_table = &smu->smu_table;
++	int ret;
+ 
+-	return smu_cmn_update_table(smu, SMU_TABLE_DPMCLOCKS, 0, smu_table->clocks_table, false);
++	/* NEW: Immediate notification upon entering the role */
++	dev_info(smu->adev->dev, "[FW16-DEBUG] Entering v13_0_5 set_default_dpm_tables\n");
++
++	/* 1. Load standard DPM tables */
++	ret = smu_cmn_update_table(smu, SMU_TABLE_DPMCLOCKS, 0, smu_table->clocks_table, false);
++	if (ret)
++		return ret;
++
++	/* NEW: Short pause (100ms) to allow the display controllers to stabilize. */
++	msleep(100);
++
++	/* 2. Apply Framework 16 voltage floor fix immediately after defaults. */
++	return smu_v13_0_5_force_igpu_floor(smu);
+ }
++/*static int smu_v13_0_5_set_default_dpm_tables(struct smu_context *smu)
++{
++	struct smu_table_context *smu_table = &smu->smu_table;
++
++	return smu_cmn_update_table(smu, SMU_TABLE_DPMCLOCKS, 0, smu_table->clocks_table, false);
++}*/
+ 
+ static int smu_v13_0_5_od_edit_dpm_table(struct smu_context *smu, enum PP_OD_DPM_TABLE_COMMAND type,
+ 					long input[], uint32_t size)

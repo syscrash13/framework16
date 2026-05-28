@@ -1,0 +1,24 @@
+[Unit]
+Description=Set CPU Temperature Limit to 90C
+# Wir warten, bis das System wirklich bereit ist
+After=multi-user.target
+# Falls der power-profiles-daemon läuft, warten wir auf ihn
+After=power-profiles-daemon.service
+
+[Service]
+Type=exec
+ExecStart=/usr/local/bin/ryzenadj --tctl-temp=90
+
+# Setzt beide GPUs auf 'auto'. 
+# Dank des Kernel-Patches bleibt die iGPU trotzdem bei 800 MHz,
+ExecStartPost=/bin/sh -c 'echo auto > /sys/class/drm/card0/device/power_dpm_force_performance_level'
+ExecStartPost=/bin/sh -c 'echo auto > /sys/class/drm/card1/device/power_dpm_force_performance_level'
+
+RemainAfterExit=yes
+# Sorgt dafür, dass der Dienst andere wichtige Boot-Prozesse nicht stört
+CPUSchedulingPolicy=idle
+IOSchedulingClass=idle
+
+[Install]
+#WantedBy=multi-user.target
+WantedBy=graphical.target

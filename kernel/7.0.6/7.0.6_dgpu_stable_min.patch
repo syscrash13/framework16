@@ -1,0 +1,13 @@
+--- drivers/gpu/drm/amd/pm/swsmu/smu13/smu_v13_0_7_ppt.c_orig	2026-05-11 08:21:59.000000000 +0200
++++ drivers/gpu/drm/amd/pm/swsmu/smu13/smu_v13_0_7_ppt.c	2026-05-14 05:19:18.668076817 +0200
+@@ -473,6 +473,10 @@
+ 	struct smu_table_context *smu_table = &smu->smu_table;
+ 	struct amdgpu_device *adev = smu->adev;
+ 	int ret = 0;
++    if (adev->pdev->device == 0x7480) {
++        adev->flags &= ~AMD_IS_APU;
++        smu->gfx_actual_hard_min_freq = 800;
++    }
+ 
+ 	/*
+ 	 * With SCPM enabled, the pptable used will be signed. It cannot
